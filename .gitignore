@@ -1,0 +1,4 @@
+node_modules
+dist
+*.log
+n8n/weekrapport_test.ts

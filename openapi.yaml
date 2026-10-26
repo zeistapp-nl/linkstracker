@@ -1,0 +1,239 @@
+openapi: 3.1.0
+info:
+  title: BuurtApps Linktracker
+  version: 1.0.0
+  description: |
+    Centrale linktracking voor ZeistApp, GooiseMerenApp en volgende lokale apps.
+    Authenticatie: header `x-api-key`. Rechten: lezen < schrijven < beheer.
+    Alle datums zijn Amsterdamse kalenderdagen (JJJJ-MM-DD, inclusief).
+servers:
+  - url: https://go.zeistapp.nl
+  - url: https://go.gooisemerenapp.nl
+components:
+  securitySchemes:
+    apiKey: { type: apiKey, in: header, name: x-api-key }
+  schemas:
+    Fout: { type: object, properties: { fout: { type: string } } }
+    Statrij:
+      type: object
+      description: Bevat daarnaast de gekozen groepvelden (app, dag, rubriek, cms_item_id, link_id, bron, ondernemer).
+      properties:
+        totaal: { type: integer, description: Alle GET-verzoeken incl. bots en dubbele kliks }
+        bots: { type: integer }
+        dubbel: { type: integer, description: Zelfde bezoeker, zelfde link, binnen 30 s }
+        niet_doorgestuurd: { type: integer, description: Inactieve link of verkeerd app-domein }
+        geldig: { type: integer, description: Menselijk, niet dubbel, doorgestuurd }
+        geschat_uniek: { type: integer, description: Benadering; som van unieke bezoekers per dag }
+security: [{ apiKey: [] }]
+paths:
+  /r/{id}:
+    get:
+      summary: Redirect (302) en klikregistratie
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9]{8}$' } }
+        - { name: b, in: query, schema: { type: string, enum: [app, nieuwsbrief, social, campagne, web] }, description: Bron. Kan de bestemming nooit beïnvloeden. }
+      responses:
+        '302': { description: Naar bestemming, of naar fallback-URL van de app bij onbekende/inactieve link of verkeerd domein }
+    head:
+      summary: Zelfde als GET, telt niet als klik
+      security: []
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '302': { description: Redirect } }
+  /health:
+    get:
+      summary: Healthcheck
+      security: []
+      parameters: [{ name: strikt, in: query, schema: { type: string, enum: ['1'] }, description: '503 bij database- of wachtrijproblemen' }]
+      responses: { '200': { description: OK of verminderd }, '503': { description: Verminderd (alleen met strikt=1) } }
+  /api/rewrite:
+    post:
+      summary: Externe links in HTML vervangen door trackinglinks (recht schrijven)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app, cms_item_id, html]
+              properties:
+                app: { type: string, example: zeist }
+                cms_item_id: { type: string, example: '31919163' }
+                rubriek: { type: string }
+                pagina_titel: { type: string }
+                html: { type: string }
+                bron: { type: string, enum: [app, nieuwsbrief, social, campagne, web], default: app }
+                dry_run: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Resultaat. In modus dry_run of uit is html ongewijzigd.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  html: { type: string }
+                  modus: { type: string, enum: [uit, dry_run, aan] }
+                  gevonden: { type: integer }
+                  gewijzigd: { type: integer }
+                  nieuw: { type: integer }
+                  bestaand: { type: integer }
+                  links: { type: array, items: { type: object } }
+                  waarschuwingen: { type: array, items: { type: string } }
+        '400': { description: Ongeldige invoer, content: { application/json: { schema: { $ref: '#/components/schemas/Fout' } } } }
+  /api/links:
+    get:
+      summary: Links ophalen (gepagineerd)
+      parameters:
+        - { name: app, in: query, schema: { type: string } }
+        - { name: cms_item_id, in: query, schema: { type: string } }
+        - { name: rubriek, in: query, schema: { type: string } }
+        - { name: ondernemer_id, in: query, schema: { type: integer } }
+        - { name: actief, in: query, schema: { type: boolean } }
+        - { name: zoek, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 1000 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses: { '200': { description: '{ totaal, limit, offset, links[] }' } }
+  /api/links/{id}:
+    get:
+      summary: Eén link met wijzigingshistorie en laatste controle
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: Link }, '404': { description: Niet gevonden } }
+    patch:
+      summary: Doel-URL, actief, label of ondernemer wijzigen (recht schrijven). Een nieuwe doel_url wordt standaard vastgezet tegen overschrijven.
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                doel_url: { type: string }
+                handmatig_vast: { type: boolean }
+                actief: { type: boolean }
+                label: { type: string }
+                ondernemer_id: { type: [integer, 'null'] }
+      responses: { '200': { description: Bijgewerkte link }, '400': { description: Ongeldig } }
+  /api/links/herkoppel:
+    post:
+      summary: Voorlopige pagina-sleutel (bijv. tmp:persbericht:uuid) omzetten naar het echte CMS-item-id na opslaan. Link-id's blijven gelijk.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app, van_cms_item_id, naar_cms_item_id]
+              properties:
+                app: { type: string }
+                van_cms_item_id: { type: string }
+                naar_cms_item_id: { type: string }
+                pagina_titel: { type: string }
+      responses: { '200': { description: '{ verplaatst }' } }
+  /api/stats:
+    get:
+      summary: Statistieken over een willekeurige periode
+      parameters:
+        - { name: van, in: query, schema: { type: string, format: date } }
+        - { name: tot, in: query, schema: { type: string, format: date } }
+        - { name: periode, in: query, schema: { type: string, enum: [vorige_week] } }
+        - { name: groep, in: query, schema: { type: string, example: 'app,rubriek' }, description: 'Komma-gescheiden: app, dag, rubriek, pagina, link, bron, ondernemer' }
+        - { name: app, in: query, schema: { type: string } }
+        - { name: bron, in: query, schema: { type: string } }
+        - { name: ondernemer_id, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: '{ periode, groepen, rijen[] }'
+          content: { application/json: { schema: { type: object, properties: { rijen: { type: array, items: { $ref: '#/components/schemas/Statrij' } } } } } }
+  /api/stats/daily:
+    get:
+      summary: Dagstatistieken per link en bron (detailregels voor Sheets)
+      parameters:
+        - { name: van, in: query, schema: { type: string, format: date } }
+        - { name: tot, in: query, schema: { type: string, format: date } }
+        - { name: app, in: query, schema: { type: string } }
+      responses: { '200': { description: '{ periode, rijen[] }' } }
+  /api/stats/ondernemers:
+    get:
+      summary: Geldige kliks per ondernemer
+      parameters:
+        - { name: van, in: query, schema: { type: string, format: date } }
+        - { name: tot, in: query, schema: { type: string, format: date } }
+        - { name: app, in: query, schema: { type: string } }
+      responses: { '200': { description: '{ periode, rijen[] }' } }
+  /api/rapport/week:
+    get:
+      summary: Complete weekrapportage (standaard vorige kalenderweek) inclusief vergelijking en integriteitscontrole
+      parameters:
+        - { name: van, in: query, schema: { type: string, format: date } }
+        - { name: tot, in: query, schema: { type: string, format: date } }
+      responses: { '200': { description: 'per_app, per_app_vorige, per_rubriek, per_bron, top_paginas, detail, ondernemers, integriteit' } }
+  /api/ondernemers:
+    get:
+      summary: Ondernemers met koppelregels
+      parameters: [{ name: app, in: query, schema: { type: string } }]
+      responses: { '200': { description: OK } }
+    post:
+      summary: Ondernemer aanmaken/bijwerken en links koppelen via host en/of CMS-item (recht schrijven)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [app, naam]
+              properties:
+                app: { type: string }
+                naam: { type: string }
+                extern_id: { type: string }
+                hosts: { type: array, items: { type: string }, example: [restaurantvoorbeeld.nl] }
+                cms_items: { type: array, items: { type: string }, example: ['31919163'] }
+      responses: { '200': { description: '{ id, gekoppelde_links }' } }
+  /api/broken-links:
+    get:
+      summary: Problematische links met ernst (ernstig, aandacht, waarnemen)
+      parameters: [{ name: app, in: query, schema: { type: string } }]
+      responses: { '200': { description: '{ aantal, ernstig, rijen[] }' } }
+  /api/broken-links/check:
+    post:
+      summary: Controleert een portie bestemmingen (langst niet gecontroleerd eerst), zonder interne netwerktoegang (recht schrijven)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { aantal: { type: integer, default: 200, maximum: 1000 } } } } } }
+      responses: { '200': { description: Samenvatting } }
+  /api/export/links:
+    get:
+      summary: CSV-export van alle links met oorspronkelijke URL (herstel-back-up)
+      responses: { '200': { description: text/csv } }
+  /api/status:
+    get:
+      summary: Wachtrij, tellers, recente fouten en dagmetrieken
+      responses: { '200': { description: OK } }
+  /api/apps:
+    get:
+      summary: Apps en hun trackingmodus
+      responses: { '200': { description: OK } }
+  /api/apps/{slug}:
+    put:
+      summary: App toevoegen of wijzigen, bijv. rewrite_modus dry_run -> aan (recht beheer)
+      parameters: [{ name: slug, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                naam: { type: string }
+                redirect_domein: { type: string }
+                fallback_url: { type: string }
+                utm_source: { type: string }
+                rewrite_modus: { type: string, enum: [uit, dry_run, aan] }
+                actief: { type: boolean }
+      responses: { '200': { description: App } }
+  /api/clients:
+    post:
+      summary: API-sleutel aanmaken of vervangen (recht beheer). De sleutel wordt eenmalig getoond.
+      requestBody:
+        content: { application/json: { schema: { type: object, required: [naam, recht], properties: { naam: { type: string }, recht: { type: string, enum: [lezen, schrijven, beheer] } } } } }
+      responses: { '200': { description: '{ naam, recht, api_key }' } }
+  /api/clients/{naam}:
+    delete:
+      summary: API-sleutel intrekken (recht beheer)
+      parameters: [{ name: naam, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: '{ ingetrokken }' } }
