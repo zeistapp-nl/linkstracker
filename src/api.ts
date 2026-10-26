@@ -96,7 +96,7 @@ export function registreerApi(app: FastifyInstance, pool: Pool, cache: Cache, wa
         ORDER BY l.aangemaakt DESC LIMIT ${limit} OFFSET ${offset}`,
       params,
     );
-    return { totaal: rows[0]?.totaal_aantal ?? 0, limit, offset, links: rows.map(({ totaal_aantal, ...r }) => r) };
+    return { totaal: rows[0]?.totaal_aantal ?? 0, limit, offset, links: rows.map(({ totaal_aantal, ...r }) => (cache.publiekDomein ? { ...r, redirect_url: `https://${cache.publiekDomein}/r/${r.id}` } : r)) };
   });
 
   app.get('/api/links/:id', { preHandler: vereist('lezen') }, async (req, reply) => {
@@ -122,7 +122,7 @@ export function registreerApi(app: FastifyInstance, pool: Pool, cache: Cache, wa
       if (b.doel_url !== undefined) {
         const o = beoordeelUrl(String(b.doel_url));
         if (!o.ok) { await db.query('ROLLBACK'); return fout(reply, 400, `Ongeldige doel_url: ${o.reden}`); }
-        if (cache.appsPerDomein.has(o.url.hostname.toLowerCase())) { await db.query('ROLLBACK'); return fout(reply, 400, 'doel_url mag niet naar een redirectdomein wijzen'); }
+        if (cache.isEigenHost(o.url.hostname)) { await db.query('ROLLBACK'); return fout(reply, 400, 'doel_url mag niet naar een redirectdomein wijzen'); }
         set.doel_url = o.url.toString();
         // Handmatige wijziging beschermen tegen overschrijven bij een latere paginaverwerking, tenzij expliciet anders
         set.handmatig_vast = b.handmatig_vast === false ? false : true;
@@ -317,7 +317,7 @@ export function registreerApi(app: FastifyInstance, pool: Pool, cache: Cache, wa
          FROM links l JOIN apps a ON a.id = l.app_id ORDER BY a.slug, l.cms_item_id, l.id`);
     const kol = ['id', 'app', 'redirect_url', 'cms_item_id', 'rubriek', 'pagina_titel', 'label', 'oorspronkelijke_url', 'doel_url', 'actief', 'aangemaakt'];
     const esc = (v: unknown) => { const s = v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const csv = [kol.join(','), ...rows.map((r) => kol.map((k) => esc(k === 'redirect_url' ? `https://${r.redirect_domein}/r/${r.id}` : r[k])).join(','))].join('\n');
+    const csv = [kol.join(','), ...rows.map((r) => kol.map((k) => esc(k === 'redirect_url' ? `https://${cache.publiekDomein || r.redirect_domein}/r/${r.id}` : r[k])).join(','))].join('\n');
     reply.header('Content-Type', 'text/csv; charset=utf-8');
     reply.header('Content-Disposition', 'attachment; filename="links-export.csv"');
     return csv;

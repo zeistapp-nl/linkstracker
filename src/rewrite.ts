@@ -87,9 +87,9 @@ export async function herschrijf(pool: Pool, cache: Cache, invoer: RewriteInvoer
     }
     const host = oordeel.url.hostname.toLowerCase();
     const eigen = eigenDomeinen.get(host);
-    if (eigen) {
+    if (eigen || cache.isEigenHost(host)) {
       const m = oordeel.url.pathname.match(/^\/r\/([A-Za-z0-9]{8})$/);
-      if (eigen.id !== app.id) waarschuwingen.push(`Trackinglink van andere app (${eigen.slug}) gevonden: ${ruw}`);
+      if (eigen && !cache.publiekDomein && eigen.id !== app.id) waarschuwingen.push(`Trackinglink van andere app (${eigen.slug}) gevonden: ${ruw}`);
       resultaat[idx] = { id: m?.[1] ?? null, status: 'al_getrackt', label: l.label, oorspronkelijke_url: ruw };
       return;
     }
@@ -150,7 +150,7 @@ export async function herschrijf(pool: Pool, cache: Cache, invoer: RewriteInvoer
         nieuw++;
       }
       cacheUpdates.push({ id, doel: doelGebruikt });
-      const redirect = `https://${app.domein}/r/${id}${bron === 'app' ? '' : `?b=${bron}`}`;
+      const redirect = `https://${cache.linkDomein(app)}/r/${id}${bron === 'app' ? '' : `?b=${bron}`}`;
       const g = gevonden[k.idx];
       vervangingen.push({ start: g.start, eind: g.eind, nieuweHref: redirect, quote: g.quote });
       resultaat[k.idx] = { id: modus === 'aan' || oud ? id : null, status: oud ? 'bestaand' : 'nieuw', label: k.label, oorspronkelijke_url: k.ruw, doel_url: doelGebruikt };

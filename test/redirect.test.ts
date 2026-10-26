@@ -153,3 +153,24 @@ test('bronparameter kan de bestemming niet beïnvloeden', async () => {
   const { rows } = await o.pool.query(`SELECT bron FROM clicks WHERE link_id = $1 ORDER BY id DESC LIMIT 1`, [zeistId]);
   assert.equal(rows[0].bron, 'onbekend');
 });
+
+test('gedeeld publiek adres: beide apps gebruiken hetzelfde adres en worden normaal geteld', async () => {
+  o.cache.publiekDomein = 'linkstracker-production.up.railway.app';
+  try {
+    const r = await rewrite(o, { app: 'gooisemeren', cms_item_id: 'gedeeld', html: `<a href="https://g.nl/x">G</a>` });
+    assert.match(r.json.html, /href="https:\/\/linkstracker-production\.up\.railway\.app\/r\/[A-Za-z0-9]{8}"/);
+    const id = r.json.links[0].id;
+    const k = await get('linkstracker-production.up.railway.app', `/r/${id}`);
+    assert.equal(k.statusCode, 302);
+    assert.equal(k.headers.location, 'https://g.nl/x?utm_source=gooisemerenapp&utm_medium=app');
+    await wachtTotLeeg();
+    const { rows } = await o.pool.query(`SELECT classificatie FROM clicks WHERE link_id = $1`, [id]);
+    assert.equal(rows[0].classificatie, 'mens');
+    const r2 = await rewrite(o, { app: 'gooisemeren', cms_item_id: 'gedeeld', html: r.json.html });
+    assert.equal(r2.json.gewijzigd, 0, 'al getrackte links op het gedeelde adres niet opnieuw herschrijven');
+    const p = await o.app.inject({ method: 'PATCH', url: `/api/links/${id}`, headers: H, payload: { doel_url: `https://linkstracker-production.up.railway.app/r/${id}` } });
+    assert.equal(p.statusCode, 400, 'redirectlus via gedeeld adres geweigerd');
+  } finally {
+    o.cache.publiekDomein = '';
+  }
+});

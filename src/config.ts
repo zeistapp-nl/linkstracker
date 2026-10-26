@@ -30,6 +30,9 @@ export const config = {
   utmUitzonderingen: list('UTM_UITZONDERINGEN'),
   // Hosts die nooit herschreven worden (interne appnavigatie, CMS)
   nietHerschrijven: list('NIET_HERSCHRIJVEN'),
+  // Eén gedeeld publiek adres voor de trackinglinks van alle apps (bijv. linkstracker-production.up.railway.app).
+  // Leeg = per app het eigen redirect_domein gebruiken.
+  publiekDomein: (process.env.PUBLIEK_DOMEIN ?? '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''),
   rateLimitRedirect: num('RATE_LIMIT_REDIRECT_PER_MIN', 300),
   rateLimitApi: num('RATE_LIMIT_API_PER_MIN', 600),
 };

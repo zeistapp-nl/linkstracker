@@ -59,6 +59,18 @@ export class Cache {
     this.dbOk = true;
   }
 
+  /** Is dit een adres van de linktracker zelf (per-app domein of gedeeld publiek domein)? */
+  isEigenHost(host: string): boolean {
+    const h = host.toLowerCase();
+    return this.appsPerDomein.has(h) || (!!this.publiekDomein && h === this.publiekDomein);
+  }
+  publiekDomein = '';
+
+  /** Het adres waarmee trackinglinks voor deze app worden gemaakt. */
+  linkDomein(app: AppInfo): string {
+    return this.publiekDomein || app.domein;
+  }
+
   appVoorSlug(slug: string): AppInfo | undefined {
     for (const a of this.apps.values()) if (a.slug === slug) return a;
     return undefined;

@@ -39,7 +39,9 @@ export function registreerRedirect(app: FastifyInstance, cache: Cache, wachtrij:
       reply.header('Referrer-Policy', 'no-referrer-when-downgrade');
       reply.header('X-Robots-Tag', 'noindex, nofollow');
       const id = (req.params as { id: string }).id;
-      const hostApp = cache.appsPerDomein.get(hostZonderPoort(req));
+      const host = hostZonderPoort(req);
+      const hostApp = cache.appsPerDomein.get(host);
+      const gedeeldAdres = !!cache.publiekDomein && host === cache.publiekDomein;
 
       if (!ID.test(id)) {
         wachtrij.tellers.onbekend_id++;
@@ -69,7 +71,7 @@ export function registreerRedirect(app: FastifyInstance, cache: Cache, wachtrij:
         // Link van app A via domein van app B: niet doorsturen
         classificatie = 'domein_mismatch';
         doel = null;
-      } else if (!hostApp) {
+      } else if (!hostApp && !gedeeldAdres) {
         // Bijv. het *.up.railway.app-adres vóór DNS: doorsturen, maar herkenbaar registreren
         classificatie = 'neutrale_host';
       }
@@ -77,7 +79,7 @@ export function registreerRedirect(app: FastifyInstance, cache: Cache, wachtrij:
       // Redirectlus voorkomen: bestemming mag nooit naar een eigen redirectdomein wijzen
       if (doel) {
         try {
-          if (cache.appsPerDomein.has(new URL(doel).hostname.toLowerCase())) { doel = null; classificatie = 'inactief'; }
+          if (cache.isEigenHost(new URL(doel).hostname)) { doel = null; classificatie = 'inactief'; }
         } catch {
           doel = null;
           classificatie = 'inactief';

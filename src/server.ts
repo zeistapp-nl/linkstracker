@@ -24,6 +24,7 @@ export async function bouwServer(pool: Pool, opties: { logger?: boolean } = {}):
     bodyLimit: 3 * 1024 * 1024,
   });
   const cache = new Cache(pool, config.cacheTtlMs);
+  cache.publiekDomein = config.publiekDomein;
   const wachtrij = new KlikWachtrij(pool, new DagSleutels(pool), {
     max: config.wachtrijMax,
     batch: config.batchGrootte,
