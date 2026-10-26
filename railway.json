@@ -8,8 +8,12 @@
     "healthcheckPath": "/health",
     "healthcheckTimeout": 60,
     "restartPolicyType": "ALWAYS",
-    "numReplicas": 1,
     "drainingSeconds": 15,
-    "overlapSeconds": 20
+    "overlapSeconds": 20,
+    "multiRegionConfig": {
+      "europe-west4-drams3a": {
+        "numReplicas": 1
+      }
+    }
   }
 }
